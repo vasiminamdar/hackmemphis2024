@@ -100,6 +100,7 @@ def update_output(layer):
     geojson_data = gpd.read_file(geojson_file)
 
     df = pd.read_parquet('input_df.parquet')
+    print(df.columns)
     df[field] = df[field].astype('int32')
 
     df = df.groupby([field]).agg(count=("UCR Category", "count")).reset_index()
@@ -114,9 +115,9 @@ def update_output(layer):
         geojson=geojson_data.__geo_interface__,
         locations=field,
         featureidkey=f"properties.{field}",
-        color=field,
+        color="count_crimes",
         color_continuous_scale="Viridis",
-        range_color=(merged[field].min(), merged[field].max()),
+        range_color=(merged["count_crimes"].min(), merged["count_crimes"].max()),
         mapbox_style="carto-positron",
         hover_data={field: True},
         zoom=10,
@@ -195,12 +196,12 @@ def create_map(contents, dropdown):
 
         df = pd.read_parquet(io.BytesIO(decoded))
         df['tract'] = df['tract'].astype('int32')
+        df.to_parquet('input_df.parquet', index=None)
+
         df = df.groupby(['tract']).agg(count=("UCR Category", "count")).reset_index()
         df = df.rename(columns={"count": "count_crimes"})
 
         merged = geojson_data.merge(df, on="tract")
-
-        df.to_parquet('input_df.parquet', index=None)
 
         fig = go.Figure()
 
@@ -209,9 +210,9 @@ def create_map(contents, dropdown):
             geojson=geojson_data.__geo_interface__,
             locations="tract",
             featureidkey="properties.tract",
-            color='count',
+            color='count_crimes',
             color_continuous_scale="Viridis",
-            range_color=(merged["count"].min(), merged["count"].max()),
+            range_color=(merged["count_crimes"].min(), merged["count_crimes"].max()),
             mapbox_style="carto-positron",
             hover_data={'tract': True},
             zoom=10,
