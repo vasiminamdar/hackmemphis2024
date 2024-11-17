@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 import pandas as pd
 import openai
 from dash import dash_table
+from dash import html
 
 
 import api_call_get_data
@@ -21,12 +22,14 @@ open_requests_path = '1_open_requests_2024.csv'
 closed_requests_path = '1_closed_requests_2024.csv'
 landbank_properties_path = '1_landbank_properties_2024.csv'
 blight_neighborhood_dataset_path = '1_blight_neighborhood_dataset_2024.csv'
+crime_dataset_path = '1_crime_data.csv'
 
 # Load datasets and handle warnings
 open_requests = pd.read_csv(open_requests_path, low_memory=False)
 closed_requests = pd.read_csv(closed_requests_path, low_memory=False)
 landbank_properties = pd.read_csv(landbank_properties_path, low_memory=False)
 blight_neighborhood_dataset = pd.read_csv(blight_neighborhood_dataset_path, low_memory=False)
+crime_dataset = pd.read_csv(crime_dataset_path, low_memory=False)
 
 # Extract latitude and longitude if the 'Location 1' column exists
 if "Location 1" in open_requests.columns:
@@ -50,28 +53,27 @@ def summarize_dataset(dataset, dataset_name):
 
 def format_response(response_text):
     """
-    Format the plain text response into structured HTML with bold, newlines, and other elements.
+    Format the plain text response into structured HTML.
+    Make "Conclusion" and "Result" bold while keeping the rest of the content normal.
     """
     # Split response into paragraphs for better readability
     paragraphs = response_text.split("\n\n")  # Assuming double newline separates sections
 
     formatted_response = []
     for para in paragraphs:
-        if para.startswith("- "):  # Bullet points
-            bullet_points = [
-                html.Li(line[2:]) for line in para.split("\n") if line.startswith("- ")
-            ]
-            formatted_response.append(html.Ul(bullet_points))
-        elif para.startswith("#"):  # Markdown-style headers
-            header_level = para.count("#")  # Number of '#' defines header level
-            header_text = para.replace("#", "").strip()
-            if header_level == 1:
-                formatted_response.append(html.H1(header_text))
-            elif header_level == 2:
-                formatted_response.append(html.H2(header_text))
-            elif header_level == 3:
-                formatted_response.append(html.H3(header_text))
-        else:  # Plain text as a paragraph
+        # Check for specific keywords to bold
+        if "Conclusion" in para or "Result" in para:
+            # Split the paragraph into parts and replace keywords with bold elements
+            parts = []
+            for word in para.split():
+                if word == "Conclusion":
+                    parts.append(html.B("Conclusion"))
+                elif word == "Result":
+                    parts.append(html.B("Result"))
+                else:
+                    parts.append(f"{word} ")
+            formatted_response.append(html.P(parts))
+        else:
             formatted_response.append(html.P(para))
 
     return html.Div(formatted_response)
@@ -81,7 +83,8 @@ dataset_summaries = {
     "Open Requests": summarize_dataset(open_requests, "Open Requests"),
     "Closed Requests": summarize_dataset(closed_requests, "Closed Requests"),
     "Landbank Properties": summarize_dataset(landbank_properties, "Landbank Properties"),
-    "Blight Neighborhood Dataset": summarize_dataset(blight_neighborhood_dataset, "Blight Neighborhood Dataset")
+    "Blight Neighborhood Dataset": summarize_dataset(blight_neighborhood_dataset, "Blight Neighborhood Dataset"),
+    "Crime Dataset": summarize_dataset(crime_dataset, "Crime Dataset")
 }
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
@@ -388,6 +391,7 @@ def chat_response(n_clicks, message):
             "Closed Requests": closed_requests,
             "Landbank Properties": landbank_properties,
             "Blight Neighborhood Dataset": blight_neighborhood_dataset,
+            "Crime Dataset": crime_dataset
         }.items():
             # Sample the first few rows to provide context
             sample_data = dataset.head(50).to_dict(orient="records")
