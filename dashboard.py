@@ -7,37 +7,10 @@ from dash.exceptions import PreventUpdate
 import base64
 import io
 import plotly.graph_objects as go
-import pandas as pd
 import openai
 from dash import dash_table
 from dash import html
 
-
-import api_call_get_data
-
-# sk-proj-
-
-# Load datasets with enhanced handling
-open_requests_path = '1_open_requests_2024.csv'
-closed_requests_path = '1_closed_requests_2024.csv'
-landbank_properties_path = '1_landbank_properties_2024.csv'
-blight_neighborhood_dataset_path = '1_blight_neighborhood_dataset_2024.csv'
-crime_dataset_path = '1_crime_data.csv'
-
-# Load datasets and handle warnings
-open_requests = pd.read_csv(open_requests_path, low_memory=False)
-closed_requests = pd.read_csv(closed_requests_path, low_memory=False)
-landbank_properties = pd.read_csv(landbank_properties_path, low_memory=False)
-blight_neighborhood_dataset = pd.read_csv(blight_neighborhood_dataset_path, low_memory=False)
-crime_dataset = pd.read_csv(crime_dataset_path, low_memory=False)
-
-# Extract latitude and longitude if the 'Location 1' column exists
-if "Location 1" in open_requests.columns:
-    open_requests[['longitude', 'latitude']] = open_requests['Location 1'].str.extract(r'POINT \(([^ ]+) ([^ ]+)\)')
-    open_requests['latitude'] = pd.to_numeric(open_requests['latitude'], errors='coerce')
-    open_requests['longitude'] = pd.to_numeric(open_requests['longitude'], errors='coerce')
-
-# Set up the OpenAI API key (replace with your key)
 
 # Summarize datasets
 def summarize_dataset(dataset, dataset_name):
@@ -78,43 +51,77 @@ def format_response(response_text):
 
     return html.Div(formatted_response)
 
-# Pre-summarize datasets for quick use in chatbot
-dataset_summaries = {
-    "Open Requests": summarize_dataset(open_requests, "Open Requests"),
-    "Closed Requests": summarize_dataset(closed_requests, "Closed Requests"),
-    "Landbank Properties": summarize_dataset(landbank_properties, "Landbank Properties"),
-    "Blight Neighborhood Dataset": summarize_dataset(blight_neighborhood_dataset, "Blight Neighborhood Dataset"),
-    "Crime Dataset": summarize_dataset(crime_dataset, "Crime Dataset")
-}
-
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets, suppress_callback_exceptions=True)
 server = app.server
 
-# # API URLs
-# open_requests_url = "https://data.memphistn.gov/resource/aiee-9zqu.json"
-# closed_requests_url = "https://data.memphistn.gov/resource/2244-gnrp.json"
+data = pd.read_csv('blight.csv').iloc[:5000]
 
-# # Output file paths
-# open_requests_csv = "open_requests.parquet"
-# closed_requests_csv = "closed_requests.parquet"
+data["hover_text"] = (
+    "Address: " + data["address"]
+)
 
-# Fetch and save open and closed requests
-# api_call_get_data.fetch_data(open_requests_url, limit=50000, output_file=open_requests_csv)
-# api_call_get_data.fetch_data(closed_requests_url, limit=50000, output_file=closed_requests_csv)
+geojson_file = "memphis_tract.geojson"
+geojson_data = gpd.read_file(geojson_file)
 
-# # Load GeoJSON file for Memphis ZIP codes
-# geojson_file = "memphis_tract.geojson"
-# geojson_data = gpd.read_file(geojson_file)
+merged = pd.DataFrame()
+merged['tract'] = geojson_data['tract']
 
-# # Load CSV data for homes by ZIP code
-# data = pd.read_csv('d.csv')
-# crime = pd.read_csv('crime_agg_tract.csv')
-# merged = geojson_data.merge(data, on="tract")
+fig = go.Figure()
 
-# merged['boundary'] = [0] * data.shape[0]
+px_fig = px.choropleth_mapbox(
+    merged,
+    geojson=geojson_data.__geo_interface__,
+    locations='tract',
+    featureidkey=f"properties.tract",
+    color_continuous_scale="Viridis",
+    range_color=(0,0),
+    mapbox_style="carto-positron",
+    hover_data={'tract': True},
+    zoom=10,
+    center={"lat": 35.1495, "lon": -90.0490},  # Coordinates for Memphis, TN
+    opacity=0.2
+)
+
+fig.add_traces(px_fig.data)
+fig.update_layout(px_fig.layout)
+
+data1 = dict(
+    type='scattermapbox',
+    lat=data['latitude'],
+    lon=data['longitude'],
+    marker=dict(color='blue'),
+    name='Plot 1',
+    hoverinfo='text',
+    text=data['hover_text']
+)
+
+fig.add_trace(data1)
+
+# Create the layout for the figure
+layout = go.Layout(
+    mapbox=dict(
+        style="carto-positron",
+        center=dict(lat=35.1495, lon=-90.0490),  # Center the map
+        zoom=10
+    ),
+    title_x=0.5,
+    legend_title="Legend",
+    height=700,
+    font=dict(
+        family="Arial, sans-serif",  # Font family
+        size=16
+    ),
+    title="Blight data in Memphis"
+)
+
+fig.update_layout(layout)
+fig.update_traces(showlegend=False)
+
+ # Set up the OpenAI API key (replace with your key)
+# Combine all dataset data
 
 
 app.layout = html.Div(
@@ -132,13 +139,27 @@ app.layout = html.Div(
         ),
         html.Br(),
         html.Div(
+            children=[
             dcc.Dropdown(
                 id='dropdown',
                 options=['census tract', 'zipcode'],
                 value='census tract',
                 placeholder='Choose a map layer',
-                style={"display": "none"}
+                style={"display": "none", "width": "50%", "padding-left": "250px"}
             ),
+            dcc.Dropdown(
+                id='agg',
+                options=[],
+                value='',
+                placeholder="Choose a variable to aggregate the data",
+                style={"display": "none", "width": "50%"}
+            ),
+            ],
+            style={
+                "display": "flex",
+                "justify-content": "center",
+                "align-items": "center"
+            }
         ),
         html.Div(
             id="maps",
@@ -147,7 +168,7 @@ app.layout = html.Div(
             dcc.Upload(
                 id="file-upload",
                 children=[
-                    html.Button('Upload File')
+                    html.Button('Upload Your Data')
                     ],
                     style={
                         "display": "flex",
@@ -155,18 +176,32 @@ app.layout = html.Div(
                         "alignItems": "center",
                         "height": "30px"
                     }
-                        ),
-            html.Div(id="output-data-upload")
-        ]
-        ),
+            ),
+            html.H6(
+                "*Your data file must include latitude and longitude columns*",
+                 style={
+                    "display": "flex",
+                    "justifyContent": "center",
+                    "alignItems": "center"
+                }
+            ),
+            dcc.Graph(
+                id="start",
+                figure=fig,
+                style={
+                    "padding-top": "20px"
+                }
+            )
+            ]
+            ),
         html.Div(
             id='blightchat',
             children=[
-            html.H1("City Service Chat", style={"padding-top": "50px", "textAlign": "center", "fontSize": "32px"}),
+            # html.H1("City Service Chat", style={"padding-top": "50px", "textAlign": "center", "fontSize": "32px"}),
 
             # Chatbox Section
             html.Div([
-                html.H3("Ask the experts:"),
+                html.H3("Explore and query the data with AI"),
                 dcc.Textarea(
                     id='chatbox-input',
                     placeholder="Type your question here",
@@ -177,7 +212,7 @@ app.layout = html.Div(
                     id='chatbox-response',
                     style={'padding': '10px', 'border': '1px solid #ddd', 'margin-top': '10px'}
                 )
-            ], style={"padding": "20px", "margin": "10px", "borderRadius": "8px"})
+            ], style={ "borderRadius": "8px"})
             ]
         )
     ]
@@ -186,9 +221,10 @@ app.layout = html.Div(
 @callback(
         Output('maps', 'children', allow_duplicate=True),
         Input('dropdown', 'value'),
+        Input('agg', 'value'),
         prevent_initial_call=True
 )
-def update_output(layer):
+def update_output(layer, aggval):
 
     data = pd.read_csv('blight.csv').iloc[:5000]
 
@@ -200,15 +236,21 @@ def update_output(layer):
 
     df[field] = df[field].astype('int32')
 
-    if field == 'tract':
-        df = pd.read_csv('fake_crime.csv')
+    if not aggval:
+
+        aggval = "crimes"
+
+        temp = df.groupby(field).agg(count=('UCR Category', "count")).reset_index()
+        df = temp.rename(columns={"count": f"count_{aggval}"})
 
     else:
-
-        df = df.groupby([field]).agg(count=("UCR Category", "count")).reset_index()
-        df = df.rename(columns={"count": "count_crimes"})
+        
+        df = df.loc[df['UCR Category'] == aggval]
+        temp = df.groupby(field).agg(count=('UCR Category', "count")).reset_index()
+        df = temp.rename(columns={"count": f"count_{aggval}"})
 
     merged = geojson_data.merge(df, on=field)
+    # merged[f"count_{aggval}"] = merged[f"count_{aggval}"].fillna(0)
 
     fig = go.Figure()
 
@@ -217,9 +259,9 @@ def update_output(layer):
         geojson=geojson_data.__geo_interface__,
         locations=field,
         featureidkey=f"properties.{field}",
-        color="count_crimes",
+        color=f"count_{aggval}",
         color_continuous_scale="Viridis",
-        range_color=(merged["count_crimes"].min(), merged["count_crimes"].max()),
+        range_color=(merged[f"count_{aggval}"].min(), merged[f"count_{aggval}"].max()),
         mapbox_style="carto-positron",
         hover_data={field: True},
         zoom=10,
@@ -260,7 +302,7 @@ def update_output(layer):
             family="Arial, sans-serif",  # Font family
             size=16
         ),
-        title="Blight data in Memphis with aggreated crime statistics map overlay"
+        title="Blight data in Memphis with aggregated crime statistics map overlay"
     )
 
     fig.update_layout(layout)
@@ -276,17 +318,23 @@ def update_output(layer):
 
 
 @callback(
+        Output('agg', 'style'),
+        Output('agg', 'options'),
         Output('dropdown', 'style'),
         Output('maps', 'children'),
         Input('file-upload', 'contents'),
-        State('dropdown', 'style')
+        State('dropdown', 'style'),
+        State('agg', 'options'),
+        State('agg', 'style')
 )
-def create_map(contents, dropdown):
+def create_map(contents, dropdown, options, aggstyle):
 
     if contents:
 
         if dropdown.get('display'):
             del dropdown['display']
+        if aggstyle.get('display'):
+            del aggstyle['display']
 
         data = pd.read_csv('blight.csv').iloc[:5000]
 
@@ -297,15 +345,17 @@ def create_map(contents, dropdown):
         decoded = base64.b64decode(content_string)
 
         df = pd.read_parquet(io.BytesIO(decoded))
-        df['tract'] = df['tract'].astype('int32')
         df.to_parquet('input_df.parquet', index=None)
 
-        # df = df.groupby(['tract']).agg(count=("UCR Category", "count")).reset_index()
-        # df = df.rename(columns={"count": "count_crimes"})
+        options = [i for i in df['UCR Category'].unique() if i]
 
-        df = pd.read_csv('fake_crime.csv')
+        df['tract'] = df['tract'].astype('int32')
+
+        temp = df.groupby('tract').agg(count=('UCR Category', "count")).reset_index()
+        df = temp.rename(columns={"count": "count_crimes"})
 
         merged = geojson_data.merge(df, on="tract")
+        # merged['count_crimes'] = merged['count_crimes'].fillna(0)
 
         fig = go.Figure()
 
@@ -358,11 +408,10 @@ def create_map(contents, dropdown):
                 family="Arial, sans-serif",  # Font family
                 size=16
             ),
-            title="Blight data in Memphis with aggreated crime statistics map overlay"
+            title="Blight data in Memphis with aggregated crime statistics map overlay"
         )
 
         fig.update_layout(layout)
-
 
         figure = dcc.Graph(
                 figure=fig,
@@ -371,8 +420,7 @@ def create_map(contents, dropdown):
                 }
         )
 
-
-        return dropdown, figure
+        return aggstyle, options, dropdown, figure
 
     return no_update
 
@@ -384,7 +432,36 @@ def create_map(contents, dropdown):
 )
 def chat_response(n_clicks, message):
     if n_clicks > 0 and message:
-        # Combine all dataset data into a prompt-friendly format
+
+        # Load datasets with enhanced handling
+        open_requests_path = '1_open_requests_2024.csv'
+        closed_requests_path = '1_closed_requests_2024.csv'
+        landbank_properties_path = '1_landbank_properties_2024.csv'
+        blight_neighborhood_dataset_path = '1_blight_neighborhood_dataset_2024.csv'
+        crime_dataset_path = '1_crime_data.csv'
+
+        # Load datasets and handle warnings
+        open_requests = pd.read_csv(open_requests_path, low_memory=False)
+        closed_requests = pd.read_csv(closed_requests_path, low_memory=False)
+        landbank_properties = pd.read_csv(landbank_properties_path, low_memory=False)
+        blight_neighborhood_dataset = pd.read_csv(blight_neighborhood_dataset_path, low_memory=False)
+        crime_dataset = pd.read_csv(crime_dataset_path, low_memory=False)
+
+        # Pre-summarize datasets for quick use in chatbot
+        dataset_summaries = {
+            "Open Requests": summarize_dataset(open_requests, "Open Requests"),
+            "Closed Requests": summarize_dataset(closed_requests, "Closed Requests"),
+            "Landbank Properties": summarize_dataset(landbank_properties, "Landbank Properties"),
+            "Blight Neighborhood Dataset": summarize_dataset(blight_neighborhood_dataset, "Blight Neighborhood Dataset"),
+            "Crime Dataset": summarize_dataset(crime_dataset, "Crime Dataset")
+        }
+
+        # Extract latitude and longitude if the 'Location 1' column exists
+        if "Location 1" in open_requests.columns:
+            open_requests[['longitude', 'latitude']] = open_requests['Location 1'].str.extract(r'POINT \(([^ ]+) ([^ ]+)\)')
+            open_requests['latitude'] = pd.to_numeric(open_requests['latitude'], errors='coerce')
+            open_requests['longitude'] = pd.to_numeric(open_requests['longitude'], errors='coerce')
+        
         dataset_contexts = []
         for dataset_name, dataset in {
             "Open Requests": open_requests,
